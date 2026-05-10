@@ -1,0 +1,30 @@
+[project]
+name = "project3-multimodal-rag"
+version = "0.1.0"
+requires-python = ">=3.10, <3.14"
+dependencies = [
+    "frontend>=0.0.3",
+    "gradio>=6.14.0",
+    "langchain>=1.2.18",
+    "langchain-experimental>=0.4.1",
+    "langchain-huggingface>=1.2.2",
+    "langchain-openai>=1.2.1",
+    "langchain-text-splitters>=1.1.2",
+    "loguru>=0.7.3",
+    "pillow>=12.2.0",
+    "pymilvus>=3.0.0",
+    "pymupdf>=1.27.2.3",
+    "torch==2.11.0+cu130",
+    "torchvision==0.26.0+cu130",
+    "torchaudio==2.11.0+cu130",
+    "sentence-transformers>=5.4.1",
+]
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+torchvision = { index = "pytorch-cu130" }
+torchaudio = { index = "pytorch-cu130" }
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true   # 只有显式指定 index 的包才使用这个源
