@@ -11,6 +11,7 @@ from langchain_core.documents import Document
 from langchain_experimental.text_splitter import SemanticChunker
 from langchain_text_splitters import MarkdownHeaderTextSplitter
 
+from milvus_db.db_operator import doc_to_dict, embedding_to_save
 from my_llm import bge_large
 from utils.common_utils import get_sorted_md_files
 from utils.log_utils import log
@@ -180,18 +181,17 @@ class MarkdownDirSplitter:
 OUTPUT_DIR = pathlib.Path(__file__).parent.parent / "output"
 
 if __name__ == '__main__':
-    md_dir = OUTPUT_DIR / '王诗豪-Java'
+    md_dir = OUTPUT_DIR / '第一章 Apache Flink 概述'
 
     splitter = MarkdownDirSplitter(images_output_dir=str(OUTPUT_DIR / 'images'))
-    docs = splitter.process_md_dir(str(md_dir), source_filename='王诗豪-Java.pdf')
+    docs = splitter.process_md_dir(str(md_dir), source_filename='第一章 Apache Flink 概述.pdf')
+    res = embedding_to_save(docs)
 
     # 打印结果
-    for i, doc in enumerate(docs):
+    # for i, doc in enumerate(docs):
+    #     print(f"\n文档 #{i + 1}:")
+    #     print(doc)
+    #     print(f"元数据: {doc.metadata}...")
+    for i, d in enumerate(res):
         print(f"\n文档 #{i + 1}:")
-        print(doc)
-        print(f"内容: {doc.page_content[:30]}...")
-        print(f"元数据: {doc.metadata}...")
-
-        print(f"一级标题: {doc.metadata.get('Header 1', '')}")
-        print(f"二级标题: {doc.metadata.get('Header 2', '')}")
-        print(f"三级标题: {doc.metadata.get('Header 3', '')}")
+        print(d)
