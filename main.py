@@ -7,7 +7,7 @@ import pathlib
 
 import gradio as gr
 
-from dots_ocr.parser import do_parse
+from dots_mocr.parser import do_parse
 from utils.common_utils import get_filename, delete_directory_if_non_empty, get_sorted_md_files
 from utils.log_utils import log
 
