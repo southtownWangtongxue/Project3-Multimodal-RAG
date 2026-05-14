@@ -74,6 +74,40 @@ def delete_directory_if_non_empty(dir_path):
         log.info(f"删除目录 '{dir_path}' 时发生错误: {e}")
         return False
 
+def get_surrounding_text_content(data_list, index):
+    """
+    获取指定图片字典的前后文本字典的文本内容。
+
+    参数:
+        data_list: 包含字典的列表，每个字典有'text'和'image_path'键
+        index: 当前图片字典在列表中的索引
+
+    返回:
+        一个元组 (prev_text, next_text):
+        - prev_text: 前一个文本字典的文本内容，如果找不到则为 None
+        - next_text: 后一个文本字典的文本内容，如果找不到则为 None
+    """
+    prev_text = None
+    next_text = None
+
+    # 查找前一个文本字典
+    i = index - 1
+    while i >= 0:
+        if 'text' in data_list[i] and data_list[i].get('image_path') is None: # 检查是否为文本字典
+            prev_text = data_list[i].get('text')
+            break
+        i -= 1
+
+    # 查找后一个文本字典
+    j = index + 1
+    while j < len(data_list):
+        if 'text' in data_list[j] and data_list[j].get('image_path') is None: # 检查是否为文本字典
+            next_text = data_list[j].get('text')
+            break
+        j += 1
+
+    return prev_text, next_text
+
 if __name__ == '__main__':
     # 使用示例
     # file_path = "/home/user/documents/example.txt"

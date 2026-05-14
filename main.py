@@ -14,7 +14,7 @@ from utils.common_utils import get_filename, delete_directory_if_non_empty, get_
 from utils.log_utils import log
 
 OUTPUT_DIR = pathlib.Path(__file__).parent / "output"
-log.info('切片程序主界面启动')
+
 
 
 class FileEmbeddingWebUI:
@@ -52,7 +52,7 @@ class FileEmbeddingWebUI:
             self.md_dir = parse_md_dir
             log.info(f"PDF已解析，生成了{len(os.listdir(parse_md_dir))}个md文件")
             self.md_files = get_sorted_md_files(self.md_dir)
-            log.info(f"PDF已解析，生成的MD文件列表：{self.md_files},存放位置：{self.md_dir}")
+            log.info(f"PDF已解析，存放位置：{self.md_dir}")
             # 把第一个文件的内容展示出来
             # 读取所有的md文件内容
             for f in self.md_files:
@@ -96,6 +96,7 @@ class FileEmbeddingWebUI:
     def embedding_save(self):
         splitter = MarkdownDirSplitter(images_output_dir=str(OUTPUT_DIR / 'images'))
         docs = splitter.process_md_dir(str(self.md_dir), source_filename=self.pdf_path)
+        log.info("docs处理完成")
         res = embedding_to_save(docs)
         for i, doc in enumerate(res):
             print(f"\n文档 #{i + 1}:")
@@ -150,6 +151,7 @@ class FileEmbeddingWebUI:
 
 
 if __name__ == '__main__':
+    log.info('程序主界面启动')
     app = FileEmbeddingWebUI()
     webui_app = app.create_web_ui()
     webui_app.launch()

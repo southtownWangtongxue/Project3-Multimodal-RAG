@@ -5,6 +5,7 @@ from typing import Tuple, List, Dict, Optional
 
 import dashscope
 
+from my_llm import get_gme_model
 from utils.env_utils import DASHSCOPE_API_KEY
 from utils.log_utils import log
 
@@ -128,8 +129,6 @@ def normalize_image(img: str) -> Tuple[str, str]:
         # API 用 URL；store 用 URL 原值
         return raw, raw
 
-
-
     # 本地文件处理
     if os.path.isfile(raw):
         return image_to_base64(raw)
@@ -197,7 +196,7 @@ def call_dashscope_once(input_data: List[Dict]) -> Tuple[bool, List[float], Opti
         return False, [], status, retry_after
 
 
-def process_item_with_guard(item: Dict, mode: str, api_image: str = "") -> Dict:
+def process_item_with_guard(item: Dict) -> Dict:
     """处理单个数据项（文本或图像），生成嵌入向量
 
     mode = 'text'：文本项：把 content 向量化；
@@ -213,76 +212,19 @@ def process_item_with_guard(item: Dict, mode: str, api_image: str = "") -> Dict:
     """
     # 创建原始项的副本以避免修改原数据
     new_item = item.copy()
-    raw_content = (new_item.get('text') or '').strip()
+    raw_content = (new_item.get('text') or '').strip()  # 获取文本内容
+    image_raw = (new_item.get('image_path') or '').strip()  # 获取原始图像路径
 
-    if mode == 'text':
-        # 构建文本输入数据
-        input_data = [{'text': raw_content}]
-        # 调用API获取文本的嵌入向量
-        ok, embedding, status, retry_after = call_dashscope_once(input_data)
-        if ok:
-            new_item['dense'] = embedding  # 成功时添加嵌入向量
-        else:
-            new_item['dense'] = []  # 失败时设置为空数组
-        return new_item
-
-    elif mode == 'image':
-        if not api_image:
-            new_item['dense'] = []  # 无有效图像数据时设置为空数组
-        else:
-            # 构建图像输入数据
-            input_data = [{'image': api_image}]
-            # 调用API获取图像的嵌入向量
-            ok, embedding, status, retry_after = call_dashscope_once(input_data)
-            if ok:
-                new_item['dense'] = embedding  # 成功时添加嵌入向量
-            else:
-                new_item['dense'] = []  # 失败时设置为空数组
-        new_item['text'] = "图片"  # 为图像项设置统一的文本标识
-        return new_item
-
+    # 调用 GME多模态模型 获取文本的嵌入向量
+    gme_model = get_gme_model()
+    embedding_tensor = gme_model.get_fused_embeddings(texts=[raw_content], images=[image_raw] if image_raw else None)
+    # 如果 embedding_tensor 是二维 (1, dim)，先取第一行
+    if embedding_tensor.dim() == 2:
+        embedding = embedding_tensor[0].cpu().tolist()
     else:
-        # 未知模式处理
-        new_item['dense'] = []
-        return new_item
-
-
-def build_work_items(expanded_data: List[Dict]) -> List[Tuple[Dict, str, str]]:
-    """构建工作项列表，将数据拆分为文本项和图片项
-
-    返回 (item, mode, api_image) 三元组
-
-    Args:
-        expanded_data: 扩展后的数据列表
-
-    Returns:
-        List[Tuple]: 工作项列表，每个元素为(数据项, 模式, API图像数据)
-    """
-    work_items: List[Tuple[Dict, str, str]] = []
-
-    for item in expanded_data:
-        content = (item.get('text') or '').strip()  # 获取文本内容
-        image_raw = (item.get('image_path') or '').strip()  # 获取原始图像路径
-
-        # 文本项处理
-        if content:
-            work_items.append((item, 'text', ''))
-
-        # 图片项处理
-        if image_raw:
-            # 规范化图像输入
-            api_img, store_img = normalize_image(image_raw)
-            if api_img:
-                # 创建图像项的副本并更新存储路径
-                pic_item = item.copy()
-                pic_item['image_path'] = store_img
-                # 添加到工作项列表
-                work_items.append((pic_item, 'image', api_img))
-            else:
-                # 图片无效或太大则跳过
-                pass
-
-    return work_items
+        embedding = embedding_tensor.cpu().tolist()
+    new_item['dense'] = embedding  # 成功时添加嵌入向量
+    return new_item
 
 
 if __name__ == "__main__":

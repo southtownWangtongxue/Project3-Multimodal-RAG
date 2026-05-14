@@ -11,8 +11,8 @@ from langchain_core.documents import Document
 from langchain_experimental.text_splitter import SemanticChunker
 from langchain_text_splitters import MarkdownHeaderTextSplitter
 
-from milvus_db.db_operator import doc_to_dict, embedding_to_save
-from my_llm import bge_large
+from milvus_db.db_operator import embedding_to_save
+from my_llm import get_bge_large
 from utils.common_utils import get_sorted_md_files
 from utils.log_utils import log
 
@@ -37,11 +37,7 @@ class MarkdownDirSplitter:
         ]
         self.text_splitter = MarkdownHeaderTextSplitter(self.headers_to_split_on)
 
-        # 语义分割器
-        self.embedding = bge_large
-        self.semantic_splitter = SemanticChunker(
-            self.embedding, breakpoint_threshold_type="percentile"
-        )
+
 
     def save_base64_to_image(self, base64_str: str, output_path: str) -> None:
         """将base64字符串解码为图像并保存"""
@@ -116,7 +112,12 @@ class MarkdownDirSplitter:
         final_docs = []
         for d in documents:
             if len(d.page_content) > self.text_chunk_size:
-                final_docs.extend(self.semantic_splitter.split_documents([d]))
+                # 加载语义分割器
+
+                semantic_splitter= SemanticChunker(
+                    get_bge_large(), breakpoint_threshold_type="percentile"
+                )
+                final_docs.extend(semantic_splitter.split_documents([d]))
             else:
                 final_docs.append(d)
 
@@ -169,11 +170,14 @@ class MarkdownDirSplitter:
         :param source_filename:  md数据的原始文件（pdf）。
         :return:
         """
+        log.info(f"markdown文件切片")
         md_files = get_sorted_md_files(md_dir)
         all_documents = []
         for md_file in md_files:
-            log.info(f"真正处理的文件为： {md_file}")
+            # log.info(f"真正处理的文件为： {md_file}")
             all_documents.extend(self.process_md_file(md_file))
+        log.info(f"markdown文件切片完成")
+        log.info(f"添加标题层级")
         # 添加标题层级
         return self.add_title_hierarchy(all_documents, source_filename)
 
@@ -185,6 +189,8 @@ if __name__ == '__main__':
 
     splitter = MarkdownDirSplitter(images_output_dir=str(OUTPUT_DIR / 'images'))
     docs = splitter.process_md_dir(str(md_dir), source_filename='第一章 Apache Flink 概述.pdf')
+    log.info("docs处理完成")
+
     res = embedding_to_save(docs)
 
     # 打印结果
@@ -192,6 +198,6 @@ if __name__ == '__main__':
     #     print(f"\n文档 #{i + 1}:")
     #     print(doc)
     #     print(f"元数据: {doc.metadata}...")
-    for i, d in enumerate(res):
-        print(f"\n文档 #{i + 1}:")
-        print(d)
+    # for i, d in enumerate(res):
+    #     print(f"\n文档 #{i + 1}:")
+    #     print(d)

@@ -1,16 +1,41 @@
+import gc
+import os
+
+import torch
+
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+os.environ.pop("HF_ENDPOINT", None)
+
+from langchain_huggingface.embeddings import HuggingFaceEmbeddings
 from langchain.chat_models import init_chat_model
 from langchain_core.rate_limiters import InMemoryRateLimiter
 
-from utils.env_utils import DASHSCOPE_API_KEY, ALIBABA_BASE_URL, ZHIPU_API_KEY, ZHIPU_BASE_URL, OPENAI_API_KEY, \
-    OPENAI_BASE_URL
-from langchain_huggingface.embeddings import HuggingFaceEmbeddings
-from sentence_transformers import SentenceTransformer
-rate_limiter = InMemoryRateLimiter(
-    requests_per_second=2 / 3,  # <-- rpm=40
-    check_every_n_seconds=0.1,  # 每隔多少秒检查一次令牌是否可用
+
+from utils.env_utils import (
+    DASHSCOPE_API_KEY, ALIBABA_BASE_URL,
+    ZHIPU_API_KEY, ZHIPU_BASE_URL,
+    OPENAI_API_KEY, OPENAI_BASE_URL,
+    GME_MODEL_PATH,
 )
+from utils.gme_inference import GmeQwen2VL
+
+# ============ 轻量级资源（模块级安全） ============
+rate_limiter = InMemoryRateLimiter(
+    requests_per_second=2 / 3,
+    check_every_n_seconds=0.1,
+)
+
 llm = init_chat_model(
     model='qwen3.5-flash-2026-02-23',
+    model_provider='openai',
+    temperature=1.0,
+    api_key=DASHSCOPE_API_KEY,
+    base_url=ALIBABA_BASE_URL
+)
+
+multiModal_llm = init_chat_model(
+    model='qwen3.5-omni-plus',
     model_provider='openai',
     temperature=1.0,
     api_key=DASHSCOPE_API_KEY,
@@ -31,16 +56,46 @@ nvidia = init_chat_model(
     temperature=1.0,
     api_key=OPENAI_API_KEY,
     base_url=OPENAI_BASE_URL,
-    reasoning_effort='max',
-    rate_limiter=rate_limiter
-)
-bge_large = HuggingFaceEmbeddings(
-    model_name='BAAI/bge-large-zh-v1.5',
-    model_kwargs={
-        'device': 'cuda',
-        'local_files_only': True,  # 只使用本地文件
-    },
-    encode_kwargs={'normalize_embeddings': True}  # set True to compute cosine similarity
+    rate_limiter=rate_limiter,
+    model_kwargs={"reasoning_effort": "max"}
 )
 
-gme_st = SentenceTransformer("iic/gme-Qwen2-VL-2B-Instruct")
+
+
+# ============ 大模型懒加载（单例） ============
+_gme_model_instance = None
+
+def get_gme_model():
+    global _gme_model_instance
+    if _gme_model_instance is None:
+        _gme_model_instance = GmeQwen2VL(model_path=GME_MODEL_PATH)
+    return _gme_model_instance
+
+_bge_large_instance = None
+
+def get_bge_large():
+    global _bge_large_instance
+    if _bge_large_instance is None:
+        _bge_large_instance = HuggingFaceEmbeddings(
+            model_name='BAAI/bge-large-zh-v1.5',
+            model_kwargs={
+                'device': 'cuda',
+                'local_files_only': True,
+            },
+            encode_kwargs={'normalize_embeddings': True}
+        )
+    return _bge_large_instance
+
+def unload_bge_model():
+    global _bge_large_instance
+    if _bge_large_instance is not None:
+        # 如果模型内部有 .to('cpu') 等操作，可忽略；直接删除对象
+        del _bge_large_instance
+        _bge_large_instance = None
+        gc.collect()
+        # 如果之前使用了 GPU，清理显存缓存
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+# 不再暴露 gme_model 变量！
+# 其他模块导入时请使用：from my_llm import get_gme_model

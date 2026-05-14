@@ -1,14 +1,14 @@
 import os
-import random
-import time
 from typing import Dict, List
 
 from langchain_core.documents import Document
+from langchain_core.messages import HumanMessage
 from pymilvus import MilvusException
 
-from milvus_db.collections_operator import COLLECTION_NAME, milvus_client
-from utils.embeddings_utils import build_work_items, limiter, RETRY_ON_429, process_item_with_guard, MAX_429_RETRIES, \
-    BASE_BACKOFF
+from milvus_db.collections_operator import COLLECTION_NAME, milvus_client, create_collection
+from my_llm import multiModal_llm
+from utils.common_utils import get_surrounding_text_content
+from utils.embeddings_utils import process_item_with_guard, image_to_base64
 from utils.log_utils import log
 
 
@@ -74,17 +74,130 @@ def doc_to_dict(docs: List[Document]) -> List[Dict]:
 
     return result_list
 
-def save_to_milvus(processed_data:List[Dict]) :
-    if not  processed_data:
+
+def save_to_milvus(processed_data: List[Dict]):
+    if not processed_data:
         log.info("[Milvus] 没有可写入的数据。")
         return
     try:
-        insert_result=milvus_client.insert(collection_name=COLLECTION_NAME, data=processed_data)
+        if not milvus_client.has_collection(COLLECTION_NAME):
+            create_collection()
+            log.info(f"[Milvus] 创建collection{COLLECTION_NAME},{milvus_client.describe_collection(COLLECTION_NAME)}")
+        insert_result = milvus_client.insert(collection_name=COLLECTION_NAME, data=processed_data)
         log.info(f"[Milvus] 成功插入 {insert_result['insert_count']} 条记录。IDs 示例: {insert_result['ids'][:5]}")
     except MilvusException as e:
         log.exception(e)
 
-def embedding_to_save(split_data:List[Document]) :
+
+def generate_image_description(data_list: List[Dict]):
+    """
+    处理文档数据，为每个图片字典生成多模态描述
+
+    参数:
+        data_list: 包含字典的列表
+
+    返回:
+        包含完整结果的新列表
+    """
+    results = []
+
+    for index, item in enumerate(data_list):
+        if item.get('image_path'):  # 检查是否为图片字典
+            # 获取前后文本内容
+            prev_text, next_text = get_surrounding_text_content(data_list, index)
+
+            # 将图片转换为base64
+            image_data = image_to_base64(item['image_path'])[0]
+
+            # 构建提示词模板
+            context_prompt = ""
+            if prev_text and next_text:
+                context_prompt = f"""
+                前文内容: {prev_text}
+                后文内容: {next_text}
+
+                请根据以上上下文和图片内容，生成对该图片的简洁描述，描述内容长度最好不超过300个汉字。
+                注意：图片可能与前文、后文或两者都相关，请综合分析。
+                """
+            elif prev_text:
+                context_prompt = f"""
+                前文内容: {prev_text}
+
+                请根据以上上下文和图片内容，生成对该图片的简洁描述，描述内容长度最好不超过300个汉字。
+                注意：图片可能与前文内容相关，请结合分析。
+                """
+            elif next_text:
+                context_prompt = f"""
+                后文内容: {next_text}
+
+                请根据以上上下文和图片内容，生成对该图片的简洁描述，描述内容长度最好不超过300个汉字。
+                注意：图片可能与后文内容相关，请结合分析。
+                """
+            else:
+                context_prompt = "请描述这张图片的内容，生成对该图片的简洁描述，描述内容长度最好不超过300个汉字。"
+
+            # 构建多模态消息
+            message = HumanMessage(
+                content=[
+                    {"type": "text", "text": context_prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"{image_data}"
+                        }
+                    }
+                ]
+            )
+
+            # 调用模型生成描述
+            response = multiModal_llm.invoke([message])
+            log.info( response.content)
+            item['text'] = response.content
+    return data_list
+
+
+# def embedding_to_save(split_data: List[Document]):
+#     """
+#         第一步：
+#         把Splitter之后的的数据（document对象列表），先转换为字典；
+#         第二步：
+#         把字典中的文本 和图片 ，进行向量化，然后再存入字典。
+#         第三步：
+#         最后写入向量数据库
+#         :param split_data:
+#         :return:
+#         """
+#     dicts = generate_image_description(doc_to_dict(split_data))
+#     # work_items = build_work_items(dicts)
+#     processed_data: List[Dict] = []
+#     for idx, item in enumerate(dicts, start=1):
+#         limiter.acquire()
+#
+#         if RETRY_ON_429:
+#             attempts = 0
+#             while True:
+#                 result = process_item_with_guard(item.copy(), mode=mode, api_image=api_img)
+#                 if result.get("dense"):
+#                     processed_data.append(result)
+#                     break
+#                 attempts += 1
+#                 if attempts > MAX_429_RETRIES:
+#                     log.warning(f"[429重试] 超过最大重试次数，跳过 idx={idx}, mode={mode}")
+#                     processed_data.append(result)
+#                     break
+#                 backoff = BASE_BACKOFF * (2 ** (attempts - 1)) * (0.8 + random.random() * 0.4)
+#                 log.warning(f"[429重试] 第{attempts}次，sleep {backoff:.2f}s …")
+#                 time.sleep(backoff)
+#         else:
+#             result = process_item_with_guard(item.copy(), mode=mode, api_image=api_img)
+#             processed_data.append(result)
+#
+#         if idx % 20 == 0:
+#             log.info(f"[进度] 已处理 {idx}/{len(dicts)}")
+#     # 第三步
+#     save_to_milvus(processed_data)
+#     return processed_data
+def embedding_to_save(split_data: List[Document]):
     """
         第一步：
         把Splitter之后的的数据（document对象列表），先转换为字典；
@@ -95,33 +208,21 @@ def embedding_to_save(split_data:List[Document]) :
         :param split_data:
         :return:
         """
-    dicts=doc_to_dict(split_data)
-    work_items=build_work_items(dicts)
+    log.info('切片的数据转换为字典')
+    doc_dicts=doc_to_dict(split_data)
+    log.info('切片的数据转换为字典--完成')
+    log.info('处理文档数据，为每个图片字典生成多模态描述')
+    dicts = generate_image_description(doc_dicts)
+    log.info('处理文档数据，为每个图片字典生成多模态描述--完成')
+    # work_items = build_work_items(dicts)
     processed_data: List[Dict] = []
-    for idx, (item, mode, api_img) in enumerate(work_items, start=1):
-        limiter.acquire()
-
-        if RETRY_ON_429:
-            attempts = 0
-            while True:
-                result = process_item_with_guard(item.copy(), mode=mode, api_image=api_img)
-                if result.get("dense"):
-                    processed_data.append(result)
-                    break
-                attempts += 1
-                if attempts > MAX_429_RETRIES:
-                    log.warning(f"[429重试] 超过最大重试次数，跳过 idx={idx}, mode={mode}")
-                    processed_data.append(result)
-                    break
-                backoff = BASE_BACKOFF * (2 ** (attempts - 1)) * (0.8 + random.random() * 0.4)
-                log.warning(f"[429重试] 第{attempts}次，sleep {backoff:.2f}s …")
-                time.sleep(backoff)
-        else:
-            result = process_item_with_guard(item.copy(), mode=mode, api_image=api_img)
-            processed_data.append(result)
+    log.info('数据向量化')
+    for idx, item in enumerate(dicts, start=1):
+        result = process_item_with_guard(item.copy())
+        processed_data.append(result)
 
         if idx % 20 == 0:
-            log.info(f"[进度] 已处理 {idx}/{len(work_items)}")
+            log.info(f"[进度] 已处理 {idx}/{len(dicts)}")
     # 第三步
     save_to_milvus(processed_data)
     return processed_data

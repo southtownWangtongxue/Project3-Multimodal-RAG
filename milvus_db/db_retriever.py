@@ -1,4 +1,10 @@
+import os.path
+from typing import Dict, Any, List
+
 from pymilvus import MilvusClient, AnnSearchRequest, RRFRanker
+
+from milvus_db.collections_operator import milvus_client, COLLECTION_NAME
+from utils.embeddings_utils import image_to_base64, call_dashscope_once
 
 
 class MilvusRetriever:
@@ -6,7 +12,6 @@ class MilvusRetriever:
         self.collection_name = collection_name
         self.client: MilvusClient = milvus_client,
         self.top_k = top_k
-
 
     def dense_search(self, query_embedding, limit=5):
         """
@@ -42,9 +47,7 @@ class MilvusRetriever:
             search_params={"metric_type": "BM25", "params": {'drop_ratio_search': 0.2}},
         )[0]
 
-
-
-    def hybrid_search(self, query_embedding,query, limit=5):
+    def hybrid_search(self, query_embedding, query, limit=5):
         """
             混合检索
             混合搜索是通过在hybrid_search() 函数中创建多个AnnSearchRequest 来实现的，
@@ -52,26 +55,64 @@ class MilvusRetriever:
             因此，在进行混合搜索之前，有必要为每个向量场创建一个AnnSearchRequest
             :return:
             """
-        params1={
+        params1 = {
             "data": [query_embedding],
             "anns_field": "dense",
             "params": {"nprobe": 10},
             "limit": limit,
             "output_fields": ["text", 'category', 'filename', 'image_path', 'title'],
         }
-        params2={
+        params2 = {
             "data": [query],
             "anns_field": "sparse",
             "params": {"nprobe": 10},
             "limit": limit,
             "output_fields": ["text", 'category', 'filename', 'image_path', 'title'],
         }
-        dense_params=AnnSearchRequest(**params1)
-        sparse_params=AnnSearchRequest(**params2)
+        dense_params = AnnSearchRequest(**params1)
+        sparse_params = AnnSearchRequest(**params2)
         params = [dense_params, sparse_params]
-        res=self.client.hybrid_search(
+        res = self.client.hybrid_search(
             collection_name=self.collection_name,
             reqs=params,
             ranker=RRFRanker(60)
         )
         return res[0]
+
+    def retrieve(self, query: str) -> List[Dict[str, Any]]:
+        '''
+        检索函数
+        :param query:
+        :return:
+        '''
+        result_list = []
+        # 判断检索内容是图片还是文本
+        if os.path.isfile(query):
+            input_data = [{'image': image_to_base64(query)[0]}]
+            # 转向量
+            ok, query_embedding, status, retry_after = call_dashscope_once(input_data)
+            if ok:
+                result_list = self.dense_search(query_embedding, limit=self.top_k)
+        else:
+            input_data = [{'text': query}]
+            ok, query_embedding, status, retry_after = call_dashscope_once(input_data)
+            if ok:
+                result_list = self.hybrid_search(query_embedding, query, limit=self.top_k)
+
+        docs = []
+        if result_list:
+            print(result_list)
+            for doc in result_list:
+                docs.append(
+                    {
+                        "text": doc.get("text"),
+                        "category": doc.get("category"),
+                        "image_path": doc.get("image_path"),
+                        "title": doc.get("title"),
+                        "filename": doc.get("filename"),
+                     }
+                )
+        return docs
+
+if __name__ == '__main__':
+    milvus_retriever = MilvusRetriever(collection_name=COLLECTION_NAME,milvus_client=milvus_client)

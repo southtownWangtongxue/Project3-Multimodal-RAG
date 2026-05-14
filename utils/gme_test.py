@@ -29,16 +29,21 @@ if __name__ == '__main__':
         Image.open(OUTPUT_DIR / "TaobaoCity_Alibaba_Xixi_Park.jpg").convert("RGB"),
     ]
     # ---------------------------- 3. 单模态嵌入（无指令） ----------------------------
-    e_text = gme.get_text_embeddings(texts=texts)      # 默认 is_query=True, 使用 default_instruction
-    e_image = gme.get_image_embeddings(images=images, is_query=False)
-    print('Single-modal', (e_text @ e_image.T).tolist())
+    # e_text = gme.get_text_embeddings(texts=texts)      # 默认 is_query=True, 使用 default_instruction
+    # e_image = gme.get_image_embeddings(images=images, is_query=False)
+
+    # print('单模态嵌入', (e_text @ e_image.T).tolist())
     # 注意：由于默认使用了 default_instruction，数值可能与原始结果略有不同
 
     # ---------------------------- 4. 带指令的单模态嵌入 ----------------------------
-    e_query = gme.get_text_embeddings(texts=texts, instruction=t2i_prompt, is_query=True)
-    e_corpus = gme.get_image_embeddings(images=images, is_query=False)
-    print('Single-modal with instruction', (e_query @ e_corpus.T).tolist())
+    # e_query = gme.get_text_embeddings(texts=texts, instruction=t2i_prompt, is_query=True)
+    # e_corpus = gme.get_image_embeddings(images=images, is_query=False)
+
+    # print('带指令的单模态嵌入', (e_query @ e_corpus.T).tolist())
 
     # ---------------------------- 5. 融合模态嵌入 ----------------------------
     e_fused = gme.get_fused_embeddings(texts=texts, images=images)
-    print('Fused-modal', (e_fused @ e_fused.T).tolist())
+    print('融合模态嵌入', e_fused)
+    print('融合模态嵌入', e_fused.shape)
+    # print('融合模态嵌入', e_fused.tolist())
+    print('融合模态嵌入', (e_fused @ e_fused.T).tolist())

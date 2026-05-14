@@ -32,7 +32,7 @@ def create_collection():
     schema.add_field(field_name='image_path', datatype=DataType.VARCHAR, max_length=1000, nullable=True)
     schema.add_field(field_name='title', datatype=DataType.VARCHAR, max_length=1000, nullable=True)
     schema.add_field(field_name='sparse', datatype=DataType.SPARSE_FLOAT_VECTOR)
-    schema.add_field(field_name='dense', datatype=DataType.FLOAT_VECTOR, dim=1024)
+    schema.add_field(field_name='dense', datatype=DataType.FLOAT_VECTOR, dim=1536)
     # 配置 BM25 函数，自动从 text 字段生成稀疏向量用于全文检索
     bm25_function = Function(
         name="text_bm25_emb",  # Function name
@@ -88,5 +88,6 @@ if __name__ == '__main__':
     res = milvus_client.describe_collection(
         collection_name=COLLECTION_NAME
     )
+    print(milvus_client.has_collection(COLLECTION_NAME))
 
     print(res)

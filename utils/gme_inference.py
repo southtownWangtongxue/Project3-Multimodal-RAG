@@ -25,7 +25,12 @@ class GmeQwen2VL:
     ) -> None:
         model_name = model_path or model_name
         self.base = AutoModelForVision2Seq.from_pretrained(
-            model_name, torch_dtype=torch.float16, **kwargs
+            model_name,
+            torch_dtype=torch.float16,
+            device_map="auto",  # 自动分配设备（优先 GPU）
+            max_memory={0: "14GiB"},  # 16GB 显存时限制使用 14GB，防止 OOM
+            low_cpu_mem_usage=True,  # 降低加载时的 CPU 内存峰值
+            **kwargs
         )
         self.base.eval()
         self.normalize = True
@@ -34,7 +39,11 @@ class GmeQwen2VL:
         max_pixels = max_image_tokens * 28 * 28
         self.max_length = max_length
         self.processor = AutoProcessor.from_pretrained(
-            model_name, min_pixels=min_pixels, max_pixels=max_pixels, **kwargs
+            model_name,
+            min_pixels=min_pixels,
+            max_pixels=max_pixels,
+            use_fast=True,
+            **kwargs
         )
         self.processor.tokenizer.padding_side = 'right'
         self.default_instruction = 'You are a helpful assistant.'
@@ -92,7 +101,7 @@ class GmeQwen2VL:
         return embeddings.contiguous()
 
     def embed(self, texts: list[str], images: list[Image.Image], is_query=True, instruction=None, **kwargs):
-        self.base.to(self.device)
+        # self.base.to(self.device)
         # Inputs must be batched
         input_texts, input_images = list(), list()
         for t, i in zip(texts, images):
@@ -167,7 +176,8 @@ class GmeQwen2VL:
                     batch_size=batch_size,
                     shuffle=False,
                     collate_fn=custom_collate_fn,
-                    num_workers=min(math.floor(os.cpu_count() / 2), 8),
+                    # num_workers=min(math.floor(os.cpu_count() / 2), 8),
+                    num_workers=0,
                 )
 
         if texts is None:
