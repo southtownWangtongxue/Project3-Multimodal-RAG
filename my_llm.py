@@ -1,22 +1,15 @@
 import gc
-import os
-
 import torch
-
-os.environ["HF_HUB_OFFLINE"] = "1"
-os.environ["TRANSFORMERS_OFFLINE"] = "1"
-os.environ.pop("HF_ENDPOINT", None)
-
 from langchain_huggingface.embeddings import HuggingFaceEmbeddings
 from langchain.chat_models import init_chat_model
 from langchain_core.rate_limiters import InMemoryRateLimiter
-
+from ragas.embeddings.base import embedding_factory
 
 from utils.env_utils import (
     DASHSCOPE_API_KEY, ALIBABA_BASE_URL,
     ZHIPU_API_KEY, ZHIPU_BASE_URL,
     OPENAI_API_KEY, OPENAI_BASE_URL,
-    GME_MODEL_PATH,
+    GME_MODEL_PATH, NVIDIA_API_KEY, NVIDIA_BASE_URL,
 )
 from utils.gme_inference import GmeQwen2VL
 
@@ -54,8 +47,8 @@ nvidia = init_chat_model(
     model='deepseek-ai/deepseek-v4-pro',
     model_provider='nvidia',
     temperature=1.0,
-    api_key=OPENAI_API_KEY,
-    base_url=OPENAI_BASE_URL,
+    api_key=NVIDIA_API_KEY,
+    base_url=NVIDIA_BASE_URL,
     rate_limiter=rate_limiter,
     model_kwargs={"reasoning_effort": "max"}
 )
@@ -99,3 +92,21 @@ def unload_bge_model():
 
 # 不再暴露 gme_model 变量！
 # 其他模块导入时请使用：from my_llm import get_gme_model
+
+
+# ============ 新版RAGAS评估框架，LLM配置 ============
+from openai import AsyncOpenAI
+from ragas.llms import llm_factory
+
+client = AsyncOpenAI(
+    api_key=ZHIPU_API_KEY,
+    base_url=ZHIPU_BASE_URL
+
+)
+embedding_client = AsyncOpenAI(
+    api_key=DASHSCOPE_API_KEY,
+    base_url=ALIBABA_BASE_URL
+
+)
+ragas_llm = llm_factory("glm-4.7-flash", provider="openai", client=client,max_tokens=65536)
+ragas_embedding= embedding_factory(model="tongyi-embedding-vision-plus-2026-03-06", provider="openai", client=embedding_client)
