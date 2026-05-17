@@ -108,5 +108,5 @@ embedding_client = AsyncOpenAI(
     base_url=ALIBABA_BASE_URL
 
 )
-ragas_llm = llm_factory("glm-4.7-flash", provider="openai", client=client,max_tokens=65536)
+ragas_llm = llm_factory("qwen3.5-flash-2026-02-23", provider="openai", client=embedding_client,max_tokens=65536)
 ragas_embedding= embedding_factory(model="tongyi-embedding-vision-plus-2026-03-06", provider="openai", client=embedding_client)

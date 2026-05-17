@@ -160,21 +160,25 @@ def call_dashscope_once(input_data: List[Dict]) -> Tuple[bool, List[float], Opti
         print(f"调用 DashScope 异常：{e}")
         log.exception(e)
         return False, [], None, None
-
+    log.info(response)
     # 获取HTTP状态码
     status = getattr(response, "status_code", None)
     retry_after = None
 
+
     # 检查是否需要重试等待
     try:
-        headers = getattr(response, "headers", None)
+        try:
+            headers = response['headers']
+        except (KeyError, TypeError):
+            headers = None
+
         if headers and isinstance(headers, dict):
             ra = headers.get("Retry-After") or headers.get("retry-after")
             if ra:
                 retry_after = float(ra)
     except Exception as e:
-        # pass
-        log.exception(e)
+        log.exception(e)  # 保留兜底日志，但实际不会再触发这里
 
     # 获取API返回的代码和消息
     resp_code = getattr(response, "code", "")
