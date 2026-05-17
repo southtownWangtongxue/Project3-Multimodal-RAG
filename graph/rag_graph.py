@@ -200,50 +200,93 @@ async def creat_rag_graph():
 
             builder = StateGraph(MultiModalRAGState, context_schema=Context)
             # 添加节点
-            builder.add_node("process_input", process_input)
-
-            builder.add_node("first_chatbot", first_chatbot)
-
+            builder.add_node("处理用户输入", process_input)
+            builder.add_node("决策智能体", first_chatbot)
             search_context_node = SearchContextToolNode(tools=tools)
-            builder.add_node("search_context", search_context_node)
-            builder.add_node("retriever_node", retriever_node)
-            builder.add_node("second_chatbot", second_chatbot)
-            builder.add_node("third_chatbot", third_chatbot)
-            builder.add_node("evaluate_node", evaluate_answer)
-            builder.add_node("human_approval", human_approval)
-            builder.add_node("fourth_chatbot", fourth_chatbot)
-            builder.add_node("web_search_node", ToolNode(tools=web_tools))
+            builder.add_node("搜索上下文工具", search_context_node)
+            builder.add_node("知识库检索", retriever_node)
+            builder.add_node("生成回复", second_chatbot)
+            builder.add_node("处理多模态请求", third_chatbot)
+            builder.add_node("RAGAS评估", evaluate_answer)
+            builder.add_node("人工审批", human_approval)
+            builder.add_node("网络搜索智能体", fourth_chatbot)
+            builder.add_node("网络搜索工具", ToolNode(tools=web_tools))
             # 添加边
-            builder.add_edge(START, 'process_input')
-            builder.add_conditional_edges('process_input', route_only_image,
-                                          {"retriever_node": "retriever_node", 'first_chatbot': 'first_chatbot'})
+            builder.add_edge(START, '处理用户输入')
 
-            builder.add_conditional_edges('first_chatbot', tools_condition, {"tools": "search_context", END: END}, )
+            builder.add_conditional_edges(
+                '处理用户输入',
+                route_only_image,
+                {
+                    "retriever_node": "知识库检索",
+                    'first_chatbot': '决策智能体'
+                }
+            )
 
-            builder.add_conditional_edges('search_context', route_llm_or_retriever,
-                                          {"retriever_node": "retriever_node", 'second_chatbot': 'second_chatbot'})
+            builder.add_conditional_edges(
+                '决策智能体',
+                tools_condition,
+                {
+                    "tools": "搜索上下文工具",
+                    END: END
+                }
+            )
 
-            builder.add_edge('retriever_node', 'third_chatbot')
+            builder.add_conditional_edges(
+                '搜索上下文工具',
+                route_llm_or_retriever,
+                {
+                    "retriever_node": "知识库检索",
+                    'second_chatbot': '生成回复'
+                }
+            )
+
+            builder.add_edge('知识库检索', '处理多模态请求')
 
             # builder.add_edge('second_chatbot', 'evaluate_node')  # 任何结果，都要进行RAGAS的评估
 
-            builder.add_conditional_edges('third_chatbot', route_evaluate_node,
-                                          {"evaluate_node": "evaluate_node", END: END}, )
-            builder.add_conditional_edges('evaluate_node', route_human_node,
-                                          {"human_approval": "human_approval", END: END}, )
-            builder.add_conditional_edges('human_approval', route_human_approval_node,
-                                          {"fourth_chatbot": "fourth_chatbot", END: END}, )
             builder.add_conditional_edges(
-                "fourth_chatbot",
-                tools_condition,
-                {"tools": "web_search_node", END: END},
+                '处理多模态请求',
+                route_evaluate_node,
+                {
+                    "evaluate_node": "RAGAS评估",
+                    END: END
+                }
             )
-            builder.add_edge('web_search_node', 'fourth_chatbot')
+            builder.add_conditional_edges(
+                'RAGAS评估',
+                route_human_node,
+                {
+                    "human_approval": "人工审批",
+                    END: END
+                }
+            )
+            builder.add_conditional_edges(
+                '人工审批',
+                route_human_approval_node,
+                {
+                    "fourth_chatbot": "网络搜索智能体",
+                    END: END
+                }
+            )
+            builder.add_conditional_edges(
+                "网络搜索智能体",
+                tools_condition,
+                {
+                    "tools": "网络搜索工具",
+                    END: END
+                }
+            )
+            builder.add_edge('网络搜索工具', '网络搜索智能体')
             graph = builder.compile(
                 checkpointer=checkpointer,
                 store=store,
-                interrupt_before=['human_approval']  # 添加中断点   静态的人工介入， 当恢复工作流时，会从中断点开始恢复工作流
+                interrupt_before=['人工审批']  # 添加中断点   静态的人工介入， 当恢复工作流时，会从中断点开始恢复工作流
             )
+            # 生成流程图png
+            # mermaid_code = graph.get_graph().draw_mermaid_png()
+            # with open('../graph/Project3-Multimodal-RAG.png', 'wb') as f:
+            #     f.write(mermaid_code)
             return graph
 
 
@@ -385,25 +428,25 @@ async def submit_llm(history: List[Dict]):
                     full_response += message.content.strip()
                     # 更新最后一条消息而非追加
                     role = history[-1].get('role')
-                    metadata =  history[-1].get('metadata') or {}  # None 变 {}，键缺失也变 {}
+                    metadata = history[-1].get('metadata') or {}  # None 变 {}，键缺失也变 {}
                     if history and isinstance(history[-1], dict) and 'assistant' == role and 'title' not in metadata:
                         history[-1]['content'] = full_response
                     else:
-                        history.append({"role" : "assistant", "content" : message.content.strip()})
+                        history.append({"role": "assistant", "content": message.content.strip()})
                     yield history
 
                 # 处理工具调用消息
                 elif isinstance(message, ToolMessage):
                     tool_msg = f"🔧 调用工具: {message.name}\n{message.content}"
-                    history.append({"role" : "assistant", "content" : tool_msg,
-                    "metadata": {"title": f"🛠️ 调用工具 {message.name}"}})
+                    history.append({"role": "assistant", "content": tool_msg,
+                                    "metadata": {"title": f"🛠️ 调用工具 {message.name}"}})
                     yield history
 
-    current_state =await graph.aget_state(config)
+    current_state = await graph.aget_state(config)
     if current_state.next:  # 出现了工作流的中断
         output = ("由于系统自我评估后，发现AI的回复不是非常准确，您是否 认可以下输出？\n "
                   "如果认可，请输入“approve”，否则请输入“rejected”，系统将会重新生成回复！")
-        history.append({"role" : "assistant", "content" : output})
+        history.append({"role": "assistant", "content": output})
         yield history
     else:
         # 异步写入响应到Milvus（把当前工作流执行后的最终结果，保存到上下文的向量数据库中）
@@ -422,12 +465,12 @@ async def submit_llm(history: List[Dict]):
 
 
 async def main():
-    with gr.Blocks(title='多模态RAG项目') as instance:
-        gr.Label('老肖的多模态RAG项目', container=False)
+    with gr.Blocks(title='小王的多模态RAG项目') as instance:
+        gr.Label('小王的多模态RAG项目', container=False)
 
         chatbot = gr.Chatbot(
             height=450,
-            label='AI助手',
+            label='多模态AI知识库',
             render_markdown=True,  # 启用Markdown渲染
             line_breaks=False  # 禁用自动换行符
         )  # 聊天记录组件
